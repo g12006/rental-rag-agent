@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>租房平台智能客服</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8; color: #1f2328; line-height: 1.6;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 40px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 18px; font-weight: 600; }
+  .sub { font-size: 13px; color: #6b7280; }
+
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .row label { font-size: 12px; color: #6b7280; }
+  input[type=text] {
+    border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 9px; font-size: 13px; outline: none;
+  }
+  input[type=text]:focus { border-color: #2563eb; }
+  #q { flex: 1; min-width: 240px; padding: 9px 11px; font-size: 14px; }
+
+  button {
+    background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+    padding: 9px 16px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  button.ghost { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+  button.ghost:hover { background: #f3f4f6; }
+
+  .log { display: flex; flex-direction: column; gap: 12px; }
+  .msg { padding: 11px 14px; border-radius: 10px; font-size: 14px; white-space: pre-wrap; }
+  .me { background: #2563eb; color: #fff; align-self: flex-end; max-width: 78%; }
+  .bot { background: #fff; border: 1px solid #e5e7eb; max-width: 92%; }
+  .sys { background: #fef3c7; border: 1px solid #fcd34d; font-size: 13px; color: #78350f; }
+
+  .meta { margin-top: 8px; font-size: 12px; color: #6b7280; border-top: 1px dashed #e5e7eb; padding-top: 7px; }
+  .src { margin-top: 9px; border-top: 1px solid #f0f1f3; padding-top: 8px; }
+  .src-title { font-size: 12px; color: #6b7280; margin-bottom: 5px; }
+  .src-item { font-size: 12px; color: #4b5563; background: #f9fafb; border-radius: 6px; padding: 6px 9px; margin-bottom: 5px; }
+  .src-item b { color: #2563eb; }
+  .review { background: #fff7ed; border: 1px solid #fdba74; padding: 10px; border-radius: 8px; margin-top: 8px; }
+  .review textarea { width: 100%; min-height: 76px; border: 1px solid #d1d5db; border-radius: 6px; padding: 7px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>租房平台智能客服</h1>
+    <span class="sub">LangGraph + RAG · 基于租房平台 Q&amp;A 知识库</span>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <label>服务</label>
+      <input type="text" id="api" value="http://127.0.0.1:8080" style="width:190px">
+      <label>会话 thread</label>
+      <input type="text" id="thread" value="web-1" style="width:110px">
+      <label>用户 user</label>
+      <input type="text" id="user" value="u-1" style="width:90px">
+      <button class="ghost" id="rebuild">重建索引</button>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="row">
+      <input type="text" id="q" placeholder="问点什么，例如：介绍一下这个项目 / 项目用了哪些技术栈" autofocus>
+      <button id="send">发送</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = $('log');
+
+function addMsg(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollIntoView ? d.scrollIntoView({behavior:'smooth'}) : null;
+  return d;
+}
+
+function renderBot(data) {
+  const d = document.createElement('div');
+  d.className = 'msg bot';
+
+  if (data.interrupted) {
+    d.innerHTML = '<div><b>需要人工审核</b></div>';
+    const rv = document.createElement('div');
+    rv.className = 'review';
+    rv.innerHTML = '<div style="font-size:12px;color:#9a3412;margin-bottom:5px">'
+      + (data.review?.instruction || '') + '</div>';
+    const ta = document.createElement('textarea');
+    ta.value = data.review?.content || '';
+    rv.appendChild(ta);
+    const btnRow = document.createElement('div');
+    btnRow.style.marginTop = '7px';
+    const b1 = document.createElement('button');
+    b1.textContent = '批准'; b1.style.marginRight = '8px';
+    const b2 = document.createElement('button');
+    b2.textContent = '用改写内容提交'; b2.className = 'ghost';
+    btnRow.appendChild(b1); btnRow.appendChild(b2);
+    rv.appendChild(btnRow);
+    d.appendChild(rv);
+
+    b1.onclick = () => resume(true, '');
+    b2.onclick = () => resume(false, ta.value);
+    log.appendChild(d);
+    return;
+  }
+
+  d.textContent = data.answer || '(空)';
+
+  if (data.sources && data.sources.length) {
+    const s = document.createElement('div');
+    s.className = 'src';
+    s.innerHTML = '<div class="src-title">引用来源</div>';
+    data.sources.forEach(x => {
+      const it = document.createElement('div');
+      it.className = 'src-item';
+      it.innerHTML = `<b>[${x.rank}] score=${x.score}</b>  ${escapeHtml(x.text.slice(0,110))}`;
+      s.appendChild(it);
+    });
+    d.appendChild(s);
+  }
+
+  const m = document.createElement('div');
+  m.className = 'meta';
+  m.textContent = `路由=${data.route || '-'} · 重写=${data.rewrite_count ?? 0} · LLM调用=${data.llm_calls ?? 0}`
+    + (data.user_profile && data.user_profile !== '(暂无历史偏好)' ? ` · 偏好：${data.user_profile}` : '');
+  d.appendChild(m);
+
+  log.appendChild(d);
+  d.scrollIntoView({behavior:'smooth'});
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function send() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('q').value = '';
+  addMsg('me', q);
+  $('send').disabled = true;
+
+  try {
+    const r = await fetch($('api').value + '/api/ask', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: q, thread_id: $('thread').value, user_id: $('user').value})
+    });
+    const data = await r.json();
+    if (!r.ok) { addMsg('sys', '请求失败：' + JSON.stringify(data)); return; }
+    renderBot(data);
+  } catch (e) {
+    addMsg('sys', '请求异常：' + e.message + '（后端服务起来了吗？）');
+  } finally {
+    $('send').disabled = false;
+  }
+}
+
+async function resume(approved, content) {
+  try {
+    const r = await fetch($('api').value + '/api/resume', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        thread_id: $('thread').value, user_id: $('user').value,
+        approved: approved, content: content
+      })
+    });
+    const data = await r.json();
+    renderBot(data);
+  } catch (e) {
+    addMsg('sys', '恢复失败：' + e.message);
+  }
+}
+
+$('send').onclick = send;
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+$('rebuild').onclick = async () => {
+  $('rebuild').disabled = true;
+  const el = addMsg('sys', '正在重建索引（加载 BGE-M3 约 1-2 分钟）...');
+  try {
+    const r = await fetch($('api').value + '/api/rebuild-index', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({})
+    });
+    const d = await r.json();
+    el.textContent = d.ok ? ('索引重建完成：' + d.count + ' 条') : ('失败：' + JSON.stringify(d));
+  } catch (e) { el.textContent = '重建失败：' + e.message; }
+  finally { $('rebuild').disabled = false; }
+};
+</script>
+</body>
+</html>

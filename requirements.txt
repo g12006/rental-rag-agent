@@ -1,0 +1,28 @@
+# 租房平台智能客服 Agent —— 融合 ragbasic-master 与 LangChain/LangGraph 学习资料
+#
+# 建议在已有的 RAG conda 环境里补装（其余依赖该环境已具备）：
+#   conda activate RAG
+#   pip install -r requirements.txt
+
+# ---------- 数据层（ragbasic-master 用的是 LlamaIndex） ----------
+llama-index-core>=0.14.0
+llama-index-embeddings-huggingface>=0.7.0
+pymilvus>=2.4.0
+milvus-lite>=2.4.0          # MilvusClient 本地文件模式，Windows 也有 wheel
+
+# ---------- 组件层（LangChain） ----------
+langchain>=1.4.0
+langchain-core>=1.6.0
+langchain-openai>=1.6.0
+langchain-text-splitters>=1.1.0
+
+# ---------- 编排层（LangGraph） ----------
+langgraph>=1.2.0
+
+# ---------- 服务层 ----------
+fastapi>=0.115.0
+uvicorn>=0.30.0
+
+# ---------- 基础 ----------
+python-dotenv>=1.0.0
+pydantic>=2.7.0
